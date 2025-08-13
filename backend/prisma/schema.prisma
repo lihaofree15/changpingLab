@@ -1,0 +1,414 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  username    String   @unique
+  firstName   String
+  lastName    String
+  password    String
+  role        Role     @default(USER)
+  department  String?
+  isActive    Boolean  @default(true)
+  lastLogin   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  createdProjects   Project[]       @relation("ProjectCreator")
+  assignedProjects  ProjectMember[]
+  createdSamples    Sample[]        @relation("SampleCreator")
+  workflows         WorkflowExecution[]
+  reagentLogs       ReagentLog[]
+  auditLogs         AuditLog[]
+  
+  @@map("users")
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      ProjectStatus @default(ACTIVE)
+  startDate   DateTime @default(now())
+  endDate     DateTime?
+  budget      Float?
+  priority    Priority @default(MEDIUM)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  creator     User     @relation("ProjectCreator", fields: [creatorId], references: [id])
+  creatorId   String
+  members     ProjectMember[]
+  samples     Sample[]
+  workflows   WorkflowExecution[]
+  
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String @id @default(cuid())
+  role      String
+  joinedAt  DateTime @default(now())
+  
+  // Relations
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+model Sample {
+  id              String      @id @default(cuid())
+  sampleId        String      @unique // Laboratory sample identifier
+  name            String
+  type            SampleType
+  status          SampleStatus @default(RECEIVED)
+  description     String?
+  volume          Float?      // in μL
+  concentration   Float?      // in ng/μL
+  quality         QualityMetrics?
+  storageLocation String?
+  barcodeId       String?     @unique
+  receivedDate    DateTime    @default(now())
+  expiryDate      DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  project         Project?    @relation(fields: [projectId], references: [id])
+  projectId       String?
+  creator         User        @relation("SampleCreator", fields: [creatorId], references: [id])
+  creatorId       String
+  libraries       Library[]
+  sequencingRuns  SequencingRun[]
+  analysisResults AnalysisResult[]
+  
+  @@map("samples")
+}
+
+model Library {
+  id                String      @id @default(cuid())
+  libraryId         String      @unique
+  name              String
+  type              LibraryType
+  protocol          String
+  concentration     Float?      // in nM
+  fragmentSize      Int?        // in bp
+  qualityMetrics    QualityMetrics?
+  preparedDate      DateTime    @default(now())
+  status            LibraryStatus @default(PREPARING)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  
+  // Relations
+  sample            Sample      @relation(fields: [sampleId], references: [id])
+  sampleId          String
+  sequencingRuns    SequencingRun[]
+  
+  @@map("libraries")
+}
+
+model SequencingRun {
+  id              String      @id @default(cuid())
+  runId           String      @unique
+  name            String
+  platform        SequencingPlatform
+  runType         RunType
+  status          SequencingStatus @default(PLANNED)
+  startDate       DateTime?
+  endDate         DateTime?
+  outputLocation  String?
+  qualityMetrics  QualityMetrics?
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  samples         Sample[]
+  libraries       Library[]
+  analysisResults AnalysisResult[]
+  
+  @@map("sequencing_runs")
+}
+
+model AnalysisResult {
+  id              String      @id @default(cuid())
+  analysisId      String      @unique
+  name            String
+  type            AnalysisType
+  status          AnalysisStatus @default(PENDING)
+  parameters      Json?       // Analysis parameters
+  results         Json?       // Analysis results
+  outputFiles     String[]    // File paths
+  startDate       DateTime?
+  endDate         DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  sample          Sample?     @relation(fields: [sampleId], references: [id])
+  sampleId        String?
+  sequencingRun   SequencingRun? @relation(fields: [sequencingRunId], references: [id])
+  sequencingRunId String?
+  
+  @@map("analysis_results")
+}
+
+model Reagent {
+  id              String      @id @default(cuid())
+  name            String
+  manufacturer    String
+  catalogNumber   String
+  lotNumber       String
+  concentration   String?
+  volume          Float?      // in mL
+  unit            String?
+  expiryDate      DateTime
+  storageTemp     String?     // Storage temperature requirements
+  location        String?     // Storage location
+  status          ReagentStatus @default(AVAILABLE)
+  minimumStock    Float?      // Minimum stock level
+  currentStock    Float?      // Current stock level
+  cost            Float?      // Cost per unit
+  supplier        String?
+  receivedDate    DateTime    @default(now())
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  logs            ReagentLog[]
+  
+  @@map("reagents")
+}
+
+model ReagentLog {
+  id          String      @id @default(cuid())
+  action      ReagentAction
+  quantity    Float
+  notes       String?
+  createdAt   DateTime    @default(now())
+  
+  // Relations
+  reagent     Reagent     @relation(fields: [reagentId], references: [id])
+  reagentId   String
+  user        User        @relation(fields: [userId], references: [id])
+  userId      String
+  
+  @@map("reagent_logs")
+}
+
+model WorkflowTemplate {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  category    WorkflowCategory
+  steps       Json        // Workflow steps definition
+  version     String      @default("1.0")
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  
+  // Relations
+  executions  WorkflowExecution[]
+  
+  @@map("workflow_templates")
+}
+
+model WorkflowExecution {
+  id          String      @id @default(cuid())
+  status      WorkflowStatus @default(PENDING)
+  currentStep Int         @default(0)
+  stepData    Json?       // Data for each step
+  startDate   DateTime?
+  endDate     DateTime?
+  notes       String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  
+  // Relations
+  template    WorkflowTemplate @relation(fields: [templateId], references: [id])
+  templateId  String
+  project     Project?    @relation(fields: [projectId], references: [id])
+  projectId   String?
+  executor    User        @relation(fields: [executorId], references: [id])
+  executorId  String
+  
+  @@map("workflow_executions")
+}
+
+model AuditLog {
+  id          String      @id @default(cuid())
+  action      String
+  tableName   String
+  recordId    String
+  oldValues   Json?
+  newValues   Json?
+  timestamp   DateTime    @default(now())
+  
+  // Relations
+  user        User        @relation(fields: [userId], references: [id])
+  userId      String
+  
+  @@map("audit_logs")
+}
+
+// Enums
+enum Role {
+  ADMIN
+  LAB_MANAGER
+  SCIENTIST
+  TECHNICIAN
+  USER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum SampleType {
+  DNA
+  RNA
+  PROTEIN
+  CELL_CULTURE
+  TISSUE
+  BLOOD
+  SERUM
+  PLASMA
+  OTHER
+}
+
+enum SampleStatus {
+  RECEIVED
+  PROCESSING
+  READY
+  USED
+  DEPLETED
+  DISCARDED
+}
+
+enum LibraryType {
+  WHOLE_GENOME
+  EXOME
+  RNA_SEQ
+  CHIP_SEQ
+  ATAC_SEQ
+  AMPLICON
+  METAGENOME
+  OTHER
+}
+
+enum LibraryStatus {
+  PREPARING
+  READY
+  SEQUENCING
+  COMPLETED
+  FAILED
+}
+
+enum SequencingPlatform {
+  ILLUMINA_NOVASEQ
+  ILLUMINA_HISEQ
+  ILLUMINA_MISEQ
+  OXFORD_NANOPORE
+  PACBIO
+  OTHER
+}
+
+enum RunType {
+  SINGLE_END
+  PAIRED_END
+}
+
+enum SequencingStatus {
+  PLANNED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum AnalysisType {
+  QUALITY_CONTROL
+  ALIGNMENT
+  VARIANT_CALLING
+  ANNOTATION
+  DIFFERENTIAL_EXPRESSION
+  PATHWAY_ANALYSIS
+  CUSTOM
+}
+
+enum AnalysisStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ReagentStatus {
+  AVAILABLE
+  LOW_STOCK
+  OUT_OF_STOCK
+  EXPIRED
+  RECALLED
+}
+
+enum ReagentAction {
+  RECEIVED
+  USED
+  WASTED
+  EXPIRED
+  RECALLED
+}
+
+enum WorkflowCategory {
+  SAMPLE_PREP
+  LIBRARY_PREP
+  SEQUENCING
+  ANALYSIS
+  QUALITY_CONTROL
+  CUSTOM
+}
+
+enum WorkflowStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  PAUSED
+}
+
+// Custom types
+type QualityMetrics {
+  purity     Float?
+  integrity  Float?
+  yield      Float?
+  ratio260280 Float?
+  ratio260230 Float?
+}
